@@ -5,7 +5,6 @@
   "installCommand": "npm install",
   "functions": {
     "api/**/*.py": {
-      "runtime": "python3.12",
       "excludeFiles": "{.next,.git,node_modules,app,public}/**"
     }
   }
