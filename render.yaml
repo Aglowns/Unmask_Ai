@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# render.yaml
+# This file tells Render EXACTLY how to build and run your backend.
+# It's like an instruction manual that Render reads when you deploy.
+#
+# HOW TO USE:
+#   1. Push your backend/ folder to a GitHub repository
+#   2. On render.com → New → Web Service → Connect your GitHub repo
+#   3. Render detects this file and configures everything automatically
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web                    # We're building a web service (HTTP server)
+    name: ai-authenticity-api    # The name of your service on Render
+    runtime: python              # We're using Python
+    region: oregon               # US West — closest free region on Render
+    plan: free                   # Free tier (enough for a hackathon!)
+
+    # Root directory where your code lives
+    rootDir: .
+
+    # How to install dependencies (Render runs this when you deploy)
+    buildCommand: pip install -r requirements.txt
+
+    # How to start your server (Render runs this to launch your app)
+    # - "app:app" means "the 'app' variable inside app.py"
+    # - "--host 0.0.0.0" means accept connections from anywhere (required on Render)
+    # - "$PORT" is automatically set by Render — never hardcode a port number
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+
+    # Environment variables (secrets go in Render dashboard, not here!)
+    # These are non-secret values. SECRET values like HF_API_TOKEN should be
+    # added through the Render web dashboard under "Environment".
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+    # Health check — Render pings this URL to see if your service is alive
+    # Must match the @app.get("/") route in app.py
+    healthCheckPath: /
