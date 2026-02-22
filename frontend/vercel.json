@@ -1,11 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build",
-  "framework": "nextjs",
-  "installCommand": "npm install",
   "functions": {
-    "api/**/*.py": {
-      "excludeFiles": "{.next,.git,node_modules,app,public}/**"
+    "api/**": {
+      "excludeFiles": "{.next,.git,node_modules,public}/**"
     }
   }
 }

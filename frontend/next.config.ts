@@ -18,14 +18,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  async rewrites() {
-    return [
-      {
-        source: "/api/analyze",
-        destination: "/api/run-analyze",
-      },
-    ];
-  },
 };
 
 export default nextConfig;
