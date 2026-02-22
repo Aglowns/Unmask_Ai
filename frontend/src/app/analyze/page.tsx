@@ -14,24 +14,39 @@ import {
   Cpu,
   FileSearch,
   ChevronDown,
+  FileImage,
+  Activity,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 const ANALYZE_ENDPOINT = "/api/run-analyze";
 
+interface Signal {
+  layer: string;
+  name: string;
+  value: string;
+  flag?: string;
+  weight?: number;
+  confidence?: number;
+  models_used?: string[];
+  models_failed?: string[];
+  all_failed?: boolean;
+}
+
 interface AnalyzeResult {
   file_name: string;
+  type: string;
   risk_score: number;
   classification: "low_risk" | "medium_risk" | "high_risk";
   confidence: number | null;
   recommendation: string;
-  signals: Array<{
-    layer: string;
-    name: string;
-    value: string;
-    flag?: string;
-  }>;
+  signals: Signal[];
+  layer_scores: Record<string, number>;
+  models_used: string[];
+  models_failed: string[];
   processing_time_ms: number;
 }
 
@@ -94,7 +109,61 @@ function RiskGauge({ score, classification }: { score: number; classification: s
   );
 }
 
-function SignalCard({ signal }: { signal: AnalyzeResult["signals"][0] }) {
+function LayerBar({ name, score }: { name: string; score: number }) {
+  const label =
+    name === "metadata"
+      ? "Metadata"
+      : name === "forensics"
+        ? "Forensics"
+        : name === "ai_detection"
+          ? "AI Detection"
+          : name;
+
+  const icon =
+    name === "metadata" ? (
+      <FileSearch className="w-3.5 h-3.5 text-white/50" />
+    ) : name === "forensics" ? (
+      <Eye className="w-3.5 h-3.5 text-white/50" />
+    ) : (
+      <Cpu className="w-3.5 h-3.5 text-white/50" />
+    );
+
+  const barColor =
+    score <= 30
+      ? "bg-emerald-400"
+      : score <= 65
+        ? "bg-amber-400"
+        : "bg-red-400";
+
+  const textColor =
+    score <= 30
+      ? "text-emerald-400"
+      : score <= 65
+        ? "text-amber-400"
+        : "text-red-400";
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="text-white/70 text-xs font-medium">{label}</span>
+        </div>
+        <span className={cn("text-xs font-bold tabular-nums", textColor)}>
+          {score}
+        </span>
+      </div>
+      <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all duration-700", barColor)}
+          style={{ width: `${score}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SignalCard({ signal }: { signal: Signal }) {
   const flagColor =
     signal.flag === "suspicious"
       ? "border-red-500/30 bg-red-500/5"
@@ -109,6 +178,20 @@ function SignalCard({ signal }: { signal: AnalyzeResult["signals"][0] }) {
         ? "bg-emerald-400"
         : "bg-white/30";
 
+  const flagLabel =
+    signal.flag === "suspicious"
+      ? "Suspicious"
+      : signal.flag === "clean"
+        ? "Clean"
+        : "Neutral";
+
+  const flagTextColor =
+    signal.flag === "suspicious"
+      ? "text-red-400/70"
+      : signal.flag === "clean"
+        ? "text-emerald-400/70"
+        : "text-white/30";
+
   const layerIcon =
     signal.layer === "metadata" ? (
       <FileSearch className="w-3.5 h-3.5" />
@@ -120,12 +203,45 @@ function SignalCard({ signal }: { signal: AnalyzeResult["signals"][0] }) {
 
   return (
     <div className={cn("p-4 rounded-xl border transition-colors", flagColor)}>
-      <div className="flex items-center gap-2 mb-1.5">
-        <span className={cn("w-2 h-2 rounded-full flex-shrink-0", flagDot)} />
-        <span className="text-white/40">{layerIcon}</span>
-        <span className="text-white/90 font-medium text-sm">{signal.name}</span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className={cn("w-2 h-2 rounded-full flex-shrink-0", flagDot)} />
+          <span className="text-white/40">{layerIcon}</span>
+          <span className="text-white/90 font-medium text-sm">{signal.name}</span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {signal.weight !== undefined && signal.weight !== 0 && (
+            <span
+              className={cn(
+                "text-[10px] font-mono px-1.5 py-0.5 rounded",
+                signal.weight > 0
+                  ? "bg-red-500/10 text-red-400/80"
+                  : "bg-emerald-500/10 text-emerald-400/80"
+              )}
+            >
+              {signal.weight > 0 ? "+" : ""}
+              {signal.weight}
+            </span>
+          )}
+          <span className={cn("text-[10px] uppercase tracking-wider font-medium", flagTextColor)}>
+            {flagLabel}
+          </span>
+        </div>
       </div>
-      <p className="text-white/60 text-sm leading-relaxed pl-4">{signal.value}</p>
+      <p className="text-white/60 text-sm leading-relaxed pl-4 mt-1">{signal.value}</p>
+      {signal.confidence !== undefined && (
+        <div className="pl-4 mt-2 flex items-center gap-2">
+          <div className="h-1 w-16 bg-white/[0.06] rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full bg-white/30"
+              style={{ width: `${Math.round(signal.confidence * 100)}%` }}
+            />
+          </div>
+          <span className="text-white/30 text-[10px]">
+            {Math.round(signal.confidence * 100)}% confidence
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -217,9 +333,16 @@ export default function AnalyzePage() {
     }
   };
 
+  const groupedSignals = result
+    ? {
+        metadata: result.signals.filter((s) => s.layer === "metadata"),
+        forensics: result.signals.filter((s) => s.layer === "forensics"),
+        ai_detection: result.signals.filter((s) => s.layer === "ai_detection"),
+      }
+    : null;
+
   return (
     <main className="min-h-screen w-full bg-black flex flex-col">
-      {/* Back nav */}
       <nav className="p-5">
         <Link
           href="/"
@@ -231,7 +354,6 @@ export default function AnalyzePage() {
       </nav>
 
       <div className="flex-1 flex flex-col items-center px-4 pb-12 pt-8 md:pt-16">
-        {/* Header */}
         <h1
           className="text-4xl md:text-6xl tracking-tight mb-3 text-white text-center"
           style={{ fontFamily: "var(--font-instrument-serif)" }}
@@ -242,7 +364,6 @@ export default function AnalyzePage() {
           Upload an image to analyze whether it&apos;s real or AI-generated
         </p>
 
-        {/* Input */}
         <div className="w-full max-w-xl">
           <AIInputWithFile
             placeholder="Upload an image to analyze..."
@@ -262,7 +383,7 @@ export default function AnalyzePage() {
               <div className="absolute inset-0 rounded-full border-2 border-t-white/40 animate-spin" style={{ animationDuration: "1.5s" }} />
             </div>
             <p className="text-white/60 text-sm">Analyzing image...</p>
-            <p className="text-white/30 text-xs">Running metadata, forensics & AI detection</p>
+            <p className="text-white/30 text-xs">Running metadata, forensics &amp; AI detection</p>
           </div>
         )}
 
@@ -279,7 +400,15 @@ export default function AnalyzePage() {
 
         {/* Results */}
         {result && !loading && (
-          <div className="mt-10 w-full max-w-xl space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="mt-10 w-full max-w-xl space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {/* File info */}
+            <div className="flex items-center gap-2 px-1">
+              <FileImage className="w-4 h-4 text-white/30" />
+              <span className="text-white/40 text-xs truncate">{result.file_name}</span>
+              <span className="text-white/20 text-xs">·</span>
+              <span className="text-white/30 text-xs">{(result.processing_time_ms / 1000).toFixed(1)}s</span>
+            </div>
+
             {/* Main result card */}
             {(() => {
               const config = getClassificationConfig(result.classification);
@@ -289,7 +418,6 @@ export default function AnalyzePage() {
                   config.border,
                   config.bg
                 )}>
-                  {/* Classification badge */}
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                       {config.icon}
@@ -300,14 +428,11 @@ export default function AnalyzePage() {
                         <p className="text-white/40 text-xs">{config.desc}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-white/30 text-[10px] uppercase tracking-widest">
-                        Risk Score
-                      </p>
-                    </div>
+                    <p className="text-white/30 text-[10px] uppercase tracking-widest">
+                      Risk Score
+                    </p>
                   </div>
 
-                  {/* Gauge */}
                   <RiskGauge score={result.risk_score} classification={result.classification} />
                   <p className="text-center mt-1">
                     <span className={cn("text-5xl font-bold tabular-nums", config.color)}>
@@ -316,7 +441,6 @@ export default function AnalyzePage() {
                     <span className="text-white/30 text-lg ml-1">/ 100</span>
                   </p>
 
-                  {/* Confidence */}
                   {result.confidence !== null && (
                     <div className="mt-6 flex items-center justify-center gap-2">
                       <div className="h-1.5 w-32 bg-white/10 rounded-full overflow-hidden">
@@ -339,30 +463,62 @@ export default function AnalyzePage() {
                     </div>
                   )}
 
-                  {/* Recommendation */}
                   <p className="text-white/70 text-sm mt-6 text-center leading-relaxed">
                     {result.recommendation}
                   </p>
-
-                  {/* Processing time */}
-                  {result.processing_time_ms > 0 && (
-                    <p className="text-white/25 text-[11px] mt-5 text-center tracking-wide">
-                      Processed in {(result.processing_time_ms / 1000).toFixed(1)}s
-                    </p>
-                  )}
                 </div>
               );
             })()}
 
-            {/* Signals */}
-            {result.signals && result.signals.length > 0 && (
+            {/* Layer breakdown */}
+            {result.layer_scores && Object.keys(result.layer_scores).length > 0 && (
+              <div className="p-5 rounded-2xl border border-white/10 bg-white/[0.02]">
+                <div className="flex items-center gap-2 mb-4">
+                  <Activity className="w-4 h-4 text-white/50" />
+                  <span className="text-white/70 text-sm font-semibold">Layer Breakdown</span>
+                </div>
+                <div className="space-y-3">
+                  {Object.entries(result.layer_scores).map(([layer, score]) => (
+                    <LayerBar key={layer} name={layer} score={score} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Models used/failed */}
+            {(result.models_used.length > 0 || result.models_failed.length > 0) && (
+              <div className="p-5 rounded-2xl border border-white/10 bg-white/[0.02]">
+                <div className="flex items-center gap-2 mb-3">
+                  <Cpu className="w-4 h-4 text-white/50" />
+                  <span className="text-white/70 text-sm font-semibold">AI Models</span>
+                </div>
+                <div className="space-y-1.5">
+                  {result.models_used.map((model) => (
+                    <div key={model} className="flex items-center gap-2">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400/70" />
+                      <span className="text-white/60 text-xs">{model}</span>
+                    </div>
+                  ))}
+                  {result.models_failed.map((model) => (
+                    <div key={model} className="flex items-center gap-2">
+                      <XCircle className="w-3.5 h-3.5 text-red-400/70" />
+                      <span className="text-white/40 text-xs">{model}</span>
+                      <span className="text-white/20 text-[10px]">failed</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Signal details (grouped by layer) */}
+            {result.signals && result.signals.length > 0 && groupedSignals && (
               <div>
                 <button
                   onClick={() => setShowSignals(!showSignals)}
                   className="w-full flex items-center justify-between px-5 py-3.5 rounded-xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.06] transition-colors cursor-pointer"
                 >
                   <span className="text-white/70 text-sm font-medium">
-                    Signal Details ({result.signals.length})
+                    All Signals ({result.signals.length})
                   </span>
                   <ChevronDown
                     className={cn(
@@ -373,10 +529,29 @@ export default function AnalyzePage() {
                 </button>
 
                 {showSignals && (
-                  <div className="mt-3 space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
-                    {result.signals.map((signal, i) => (
-                      <SignalCard key={i} signal={signal} />
-                    ))}
+                  <div className="mt-3 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                    {(["metadata", "forensics", "ai_detection"] as const).map((layer) => {
+                      const signals = groupedSignals[layer];
+                      if (!signals || signals.length === 0) return null;
+                      const layerLabel =
+                        layer === "metadata"
+                          ? "Metadata Analysis"
+                          : layer === "forensics"
+                            ? "Forensics Analysis"
+                            : "AI Detection";
+                      return (
+                        <div key={layer}>
+                          <p className="text-white/40 text-[10px] uppercase tracking-widest font-medium mb-2 px-1">
+                            {layerLabel}
+                          </p>
+                          <div className="space-y-2">
+                            {signals.map((signal, i) => (
+                              <SignalCard key={i} signal={signal} />
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
