@@ -5,8 +5,11 @@ import Link from "next/link";
 import { ArrowLeft, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 
+// Use same-origin /api/analyze on Vercel; external URL for local dev when backend runs separately
 const API_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  process.env.NEXT_PUBLIC_API_URL !== undefined && process.env.NEXT_PUBLIC_API_URL !== ""
+    ? process.env.NEXT_PUBLIC_API_URL
+    : "";
 
 interface AnalyzeResult {
   file_name: string;
@@ -42,16 +45,18 @@ export default function AnalyzePage() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch(`${API_URL}/api/analyze`, {
+      const response = await fetch(`${API_URL || ""}/api/analyze`, {
         method: "POST",
         body: formData,
       });
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(
-          errData.detail || `Request failed: ${response.status} ${response.statusText}`
-        );
+        const message =
+          typeof errData.detail === "string"
+            ? errData.detail
+            : errData.detail?.message || `Request failed: ${response.status} ${response.statusText}`;
+        throw new Error(message);
       }
 
       const data: AnalyzeResult = await response.json();
