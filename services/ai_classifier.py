@@ -35,6 +35,17 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 SIGHTENGINE_API_URL = "https://api.sightengine.com/1.0/check.json"
 SIGHTENGINE_MODEL = "genai"
 
+# Configurable probability bands for AI likelihood (tune for calibration)
+# Above HIGH_AI → strong suspicious; above MODERATE_AI → moderate; above LOW_AI → neutral; else clean
+AI_PROB_HIGH = 0.80
+AI_PROB_MODERATE = 0.50
+AI_PROB_LOW = 0.30
+# Weights per band (suspicious positive, clean negative)
+WEIGHT_HIGH_AI = 40
+WEIGHT_MODERATE_AI = 25
+WEIGHT_NEUTRAL_AI = 5
+WEIGHT_CLEAN = -15
+
 # ─────────────────────────────────────────────────────────────────────────────
 # HUGGINGFACE MODELS (fallback)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -163,21 +174,21 @@ def _call_sightengine(image_bytes: bytes, api_user: str, api_secret: str) -> lis
         ai_prob = result.get("type", {}).get("ai_generated", 0.0)
         ai_pct = round(ai_prob * 100, 1)
 
-        # Map to risk weight
-        if ai_prob > 0.80:
-            weight = 40  # very strong signal from commercial API
+        # Map to risk weight using configurable bands
+        if ai_prob > AI_PROB_HIGH:
+            weight = WEIGHT_HIGH_AI
             flag = "suspicious"
             verdict = f"High AI likelihood — SightEngine is {ai_pct}% confident this is AI-generated"
-        elif ai_prob > 0.50:
-            weight = 25
+        elif ai_prob > AI_PROB_MODERATE:
+            weight = WEIGHT_MODERATE_AI
             flag = "suspicious"
             verdict = f"Moderate AI likelihood — SightEngine is {ai_pct}% confident this is AI-generated"
-        elif ai_prob > 0.30:
-            weight = 5
+        elif ai_prob > AI_PROB_LOW:
+            weight = WEIGHT_NEUTRAL_AI
             flag = "neutral"
             verdict = f"Inconclusive — SightEngine shows {ai_pct}% AI probability"
         else:
-            weight = -15
+            weight = WEIGHT_CLEAN
             flag = "clean"
             verdict = f"Low AI likelihood — SightEngine is {100 - ai_pct}% confident this is a real photo"
 
@@ -338,11 +349,11 @@ def _build_hf_ensemble_signals(model_results: list[dict]) -> list[dict]:
     else:
         ensemble_prob = sum(successful_probs) / len(successful_probs)
         ensemble_pct = round(ensemble_prob * 100, 1)
-
-        if ensemble_prob > 0.80:
+        # Use same configurable bands as SightEngine (HF weights slightly lower)
+        if ensemble_prob > AI_PROB_HIGH:
             weight, flag = 35, "suspicious"
             verdict = f"High AI likelihood — {ensemble_pct}% confident"
-        elif ensemble_prob > 0.50:
+        elif ensemble_prob > AI_PROB_MODERATE:
             weight, flag = 20, "suspicious"
             verdict = f"Moderate AI likelihood — {ensemble_pct}% confident"
         else:

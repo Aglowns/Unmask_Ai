@@ -22,7 +22,9 @@ import {
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-const ANALYZE_ENDPOINT = "/api/run-analyze";
+const ANALYZE_ENDPOINT = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api/analyze`
+  : "/api/run-analyze";
 
 interface Signal {
   layer: string;
@@ -284,9 +286,17 @@ export default function AnalyzePage() {
       const data: AnalyzeResult = await response.json();
       setResult(data);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to analyze image. Is the backend running?"
-      );
+      const errMsg = err instanceof Error ? err.message : String(err);
+      const isNetworkError =
+        errMsg === "Failed to fetch" ||
+        errMsg.includes("NetworkError") ||
+        errMsg.includes("connection refused");
+      const message = isNetworkError
+        ? "Cannot reach the backend. Start it from the project root: python3 app.py"
+        : err instanceof Error
+          ? err.message
+          : "Failed to analyze image.";
+      setError(message);
     } finally {
       setLoading(false);
     }

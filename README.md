@@ -70,17 +70,23 @@ set HF_API_TOKEN=hf_your_token_here
 $env:HF_API_TOKEN="hf_your_token_here"
 ```
 
-### Step 4: Start the server
+### Step 4: Start the backend server
+From the **project root** (where `app.py` lives), run:
 ```bash
-python app.py
+python3 app.py
 ```
+You should see: `Uvicorn running on http://0.0.0.0:8000`. Leave this terminal open.
 
-You should see:
+### Step 5: (Optional) Run the frontend locally
+To use the web UI at http://localhost:3000, open a **second terminal**, then:
+```bash
+cd frontend
+npm install
+npm run dev
 ```
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-```
+Open http://localhost:3000/analyze and upload an image. The frontend talks to the backend at port 8000; if you see "Cannot reach the backend", start the backend (Step 4) first.
 
-### Step 5: Test it
+### Step 6: Test the API
 Open http://localhost:8000 in your browser — you should see:
 ```json
 {"status": "ok", "message": "AI Authenticity Detector is running!"}

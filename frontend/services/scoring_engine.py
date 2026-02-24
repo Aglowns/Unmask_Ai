@@ -9,17 +9,38 @@ What this does:
   1. Confidence-weighted scoring — signals with higher confidence count more
   2. Layer agreement bonus — multiple layers agreeing amplifies the signal
   3. Forensics amplification — when AI models are unavailable, forensics
-     signals are boosted to compensate (so we still get strong scores)
+     signals are boosted to compensate
   4. Per-layer sub-scores — enables frontend breakdown charts
-  5. Metadata trust gate — metadata can ONLY influence the score when BOTH
-     forensics AND ai_detection actively confirm the image is real. If they
-     disagree, both flag AI, or either layer has no data, metadata is excluded
+  5. Metadata trust gate — metadata influence is reduced unless other layers
+     confirm real; can be softened when only one other layer has data
+  6. Uncertainty handling — when only one layer has usable data, we cap
+     the adjustment so the score doesn't swing too far on a single signal
 
 Score interpretation:
   0–30  → Green  — Low Risk (likely authentic)
   31–65 → Yellow — Medium Risk (mixed signals, proceed with caution)
   66–100 → Red   — High Risk (likely AI-generated)
 """
+
+# ─── Configurable scoring (tune via constants or future config) ─────────────
+BASE_SCORE = 25
+# Band boundaries for classification
+BAND_LOW_MAX = 30
+BAND_MEDIUM_MAX = 65
+# Layer agreement bonuses
+BONUS_SUSPICIOUS_3_LAYERS = 10
+BONUS_SUSPICIOUS_2_LAYERS = 5
+BONUS_CLEAN_3_LAYERS = -8
+BONUS_CLEAN_2_LAYERS = -3
+# When AI models failed and forensics are suspicious
+BONUS_FORENSICS_AMP_EXTRA = 8
+# Forensics/metadata amplification when AI layer failed
+FORENSICS_AMP_MULTIPLIER = 1.5
+# Uncertainty: max absolute adjustment when only one layer has non-neutral data
+UNCERTAINTY_SINGLE_LAYER_CAP = 25
+# Metadata trust: require both forensics AND ai_detection clean to use metadata?
+# If False, we only exclude metadata when BOTH other layers exist and disagree.
+METADATA_REQUIRE_BOTH_CLEAN = True
 
 
 def _is_layer_clean(signals: list[dict], layer_name: str) -> bool:
@@ -38,6 +59,15 @@ def _is_layer_clean(signals: list[dict], layer_name: str) -> bool:
     return clean_count > suspicious_count
 
 
+def _count_layers_with_data(signals: list[dict]) -> int:
+    """Number of layers that have at least one non-neutral flag."""
+    layers_with_data = set()
+    for s in signals:
+        if s.get("flag", "neutral") != "neutral":
+            layers_with_data.add(s.get("layer", "unknown"))
+    return len(layers_with_data)
+
+
 def calculate_risk_score(signals: list[dict]) -> tuple[int, str]:
     """
     Main function called by app.py.
@@ -49,18 +79,12 @@ def calculate_risk_score(signals: list[dict]) -> tuple[int, str]:
         Tuple of (risk_score: int, classification: str)
         e.g. (78, "high_risk")
     """
-
-    BASE_SCORE = 25
     total_adjustment = 0
 
-    # ── Metadata trust gate: metadata can ONLY influence the score when BOTH
-    #    forensics AND ai_detection actively confirm the image is real.
-    #    If they disagree, both flag AI, or either has no usable data,
-    #    metadata is completely excluded to prevent easily-faked EXIF from
-    #    skewing results.
+    # ── Metadata trust gate ───────────────────────────────────────────────
     forensics_clean = _is_layer_clean(signals, "forensics")
     ai_clean = _is_layer_clean(signals, "ai_detection")
-    if not (forensics_clean and ai_clean):
+    if METADATA_REQUIRE_BOTH_CLEAN and not (forensics_clean and ai_clean):
         signals = [s for s in signals if s.get("layer") != "metadata"]
 
     # ── Check if AI models failed (so we can amplify forensics) ────────────
@@ -85,11 +109,8 @@ def calculate_risk_score(signals: list[dict]) -> tuple[int, str]:
             adjusted_weight = weight
 
         # ── FORENSICS AMPLIFICATION ────────────────────────────────────────
-        # When AI models are down, forensics and metadata signals carry more
-        # weight to compensate for the missing AI detection layer.
         if ai_models_failed and layer in ("forensics", "metadata"):
-            amplification = 1.5  # 50% boost
-            adjusted_weight *= amplification
+            adjusted_weight *= FORENSICS_AMP_MULTIPLIER
 
         total_adjustment += adjusted_weight
 
@@ -117,19 +138,25 @@ def calculate_risk_score(signals: list[dict]) -> tuple[int, str]:
 
     # Cross-layer agreement bonuses
     if suspicious_layers >= 3:
-        total_adjustment += 10
+        total_adjustment += BONUS_SUSPICIOUS_3_LAYERS
     elif suspicious_layers >= 2:
-        total_adjustment += 5
+        total_adjustment += BONUS_SUSPICIOUS_2_LAYERS
 
     if clean_layers >= 3:
-        total_adjustment -= 8
+        total_adjustment += BONUS_CLEAN_3_LAYERS
     elif clean_layers >= 2:
-        total_adjustment -= 3
+        total_adjustment += BONUS_CLEAN_2_LAYERS
 
-    # ── Extra boost when AI models are down and forensics are suspicious ──
-    # This ensures we still get meaningful high scores for AI images
     if ai_models_failed and suspicious_layers >= 2:
-        total_adjustment += 8  # extra push since we're missing AI layer
+        total_adjustment += BONUS_FORENSICS_AMP_EXTRA
+
+    # ── Uncertainty: when only one layer has data, cap the adjustment ───────
+    layers_with_data = _count_layers_with_data(signals)
+    if layers_with_data <= 1 and layers_with_data > 0:
+        total_adjustment = max(
+            -UNCERTAINTY_SINGLE_LAYER_CAP,
+            min(UNCERTAINTY_SINGLE_LAYER_CAP, total_adjustment)
+        )
 
     # ── Final score calculation ────────────────────────────────────────────
     raw_score = BASE_SCORE + total_adjustment
@@ -164,9 +191,9 @@ def calculate_layer_scores(signals: list[dict]) -> dict:
 
 def _classify_score(score: int) -> str:
     """Converts a numeric score into a string classification label."""
-    if score <= 30:
+    if score <= BAND_LOW_MAX:
         return "low_risk"
-    elif score <= 65:
+    elif score <= BAND_MEDIUM_MAX:
         return "medium_risk"
     else:
         return "high_risk"

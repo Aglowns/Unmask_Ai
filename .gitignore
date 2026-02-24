@@ -16,6 +16,7 @@ build/
 # IDE / OS
 .idea/
 .vscode/
+.cursor/
 *.swp
 .DS_Store
 Thumbs.db

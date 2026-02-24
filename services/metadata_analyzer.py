@@ -17,6 +17,7 @@ What this file does:
 """
 
 import io
+from datetime import datetime
 from PIL import Image
 import piexif
 
@@ -27,7 +28,11 @@ EXIF_SOFTWARE_TAG = 305
 AI_TOOL_SIGNATURES = [
     "midjourney", "stable diffusion", "dall-e", "dalle",
     "firefly", "imagen", "sdxl", "comfyui", "automatic1111",
-    "novelai", "dreamstudio", "runway"
+    "novelai", "dreamstudio", "runway",
+    "ideogram", "leonardo", "kling", "runway gen", "luma",
+    "flux", "playground", "replicate", "fal.ai", "together",
+    "openai", "gemini", "copilot", "clipdrop", "remove.bg",
+    "python pillow", "pillow", "gimp", "krita",
 ]
 
 
@@ -137,6 +142,68 @@ def analyze_metadata(image_bytes: bytes) -> list[dict]:
                         "value": "GPS coordinates found — real-world capture location present",
                         "flag": "clean",
                         "weight": -5
+                    })
+
+                # ── Check 5: DateTime consistency (capture before file time) ───
+                exif_ifd = exif_dict.get("Exif", {})
+                dt_original = exif_ifd.get(piexif.ExifIFD.DateTimeOriginal, b"").decode("utf-8", errors="ignore").strip()
+                ifd_0th = exif_dict.get("0th", {})
+                dt_file = ifd_0th.get(piexif.ImageIFD.DateTime, b"").decode("utf-8", errors="ignore").strip()
+                if dt_original and dt_file:
+                    try:
+                        # EXIF format: "YYYY:MM:DD HH:MM:SS"
+                        t_orig = datetime.strptime(dt_original, "%Y:%m:%d %H:%M:%S")
+                        t_file = datetime.strptime(dt_file, "%Y:%m:%d %H:%M:%S")
+                        if t_orig > t_file:
+                            signals.append({
+                                "layer": "metadata",
+                                "name": "Timestamp Consistency",
+                                "value": "Capture time is after file time — inconsistent (may be edited or synthetic)",
+                                "flag": "suspicious",
+                                "weight": 12
+                            })
+                        else:
+                            signals.append({
+                                "layer": "metadata",
+                                "name": "Timestamp Consistency",
+                                "value": "Capture and file timestamps are consistent",
+                                "flag": "clean",
+                                "weight": -3
+                            })
+                    except ValueError:
+                        pass
+
+                # ── Check 6: DPI / resolution metadata ─────────────────────
+                dpi = image.info.get("dpi")
+                if dpi is not None and isinstance(dpi, (tuple, list)) and len(dpi) >= 2:
+                    x_dpi, y_dpi = float(dpi[0]), float(dpi[1])
+                    # Common AI export DPIs: 72, 96, 144; cameras often 72, 180, 300, 350
+                    if x_dpi in (72, 96) and y_dpi in (72, 96) and image.format == "PNG":
+                        signals.append({
+                            "layer": "metadata",
+                            "name": "Resolution Metadata",
+                            "value": f"DPI {x_dpi}x{y_dpi} — common for screen/export (PNG). Neutral.",
+                            "flag": "neutral",
+                            "weight": 2
+                        })
+                    elif x_dpi >= 200 or y_dpi >= 200:
+                        signals.append({
+                            "layer": "metadata",
+                            "name": "Resolution Metadata",
+                            "value": f"DPI {x_dpi}x{y_dpi} — typical of camera or print source",
+                            "flag": "clean",
+                            "weight": -2
+                        })
+
+                # ── Check 7: Color profile / color space ───────────────────
+                icc = image.info.get("icc_profile")
+                if icc is not None and len(icc) > 0:
+                    signals.append({
+                        "layer": "metadata",
+                        "name": "Color Profile",
+                        "value": "ICC profile present — suggests professional or camera workflow",
+                        "flag": "clean",
+                        "weight": -2
                     })
 
             except Exception:
